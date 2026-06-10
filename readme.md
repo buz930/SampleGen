@@ -1,142 +1,82 @@
-# [SampleGen: Generating the next resolution by the Next-scale generative method](https://arxiv.org/abs/2504.14032)
+# 进度汇报
+## 复现部分
+成员：周佳妮 谭笑
+时间：2026.5.24
+摘要：本阶段完成文献阅读、计划制定、基础环境配置、NAF方法在部分数据集上的复现工作，分以下几个部分简要介绍进度
 
+- **文献阅读**
+- **复现计划**
+- **当前进度**
+- **遇到的问题**
 
-## Contents
-- [Install](#install)
-- [Inference & Example Usage](#inference--example-usage)
-- [Registering a New Custom Upsampler (e.g., FeatUp)](#registering-a-new-custom-upsampler-eg-featup)
-- [Evaluation on Downstream Tasks](#evaluation-on-downstream-tasks)
-- [Training LoftUp upsamplers](#training-loftup-upsamplers)
-- [Citation](#citation)
+### 文献阅读
+我们阅读了选题所列出的参考文献，最终选择论文
+>*NAF: Zero-Shot Feature Upsampling via Neighborhood Attention Filtering*
 
-## Install
+中的指标进行复现，文章提出了NAF上采样方法，并在VOC、COCO、ADE20K等经典数据集上，结合DINOv3等下游模型，执行语义分割、深度估计、开放词汇分割、视频任务分割等下游任务，与JBF、JBU、AnyUp等经典上采样方法进行评价指标的对比。
 
-In general, LoftUp can run with most recent pytorch environments. We encourage the users to try out LoftUp in their exisitng environment first.
+### 复现计划
+我们将复现任务大致分为基础环境搭建、数据集下载、参数配置、指标复现几个部分。
 
-We also provide two yaml file for installation. To use them, simply run:
+在实际实验中发现，数据集的下载与配置最为繁琐，且资源占用最多；同时不同下游任务对应的数据集往往不尽相同，因此**在分工时以数据集作为依据**（一人负责几个数据集）。
+
+计划复现的指标以表格形式列出，表格中计划填入的指标：
+**语义分割 (Segmentation)：**
+ mIoU
+**深度估计 (Depth Estimation):**
+RMSE (Root Mean Squared Error)
+REL (Relative Error, 相对误差)
+**开放词汇划分(open-vocabulary segmentation)：**
+ mIoU
+**视频分割 (Video Segmentation):**
+J&F (Jaccard Index and F-measure 的平均值)
+
+### 复现进度
+对比NAF、ANYUP以及Upsample Anything三篇论文关于对比模型的选取以及下游任务的完成度，我们最终选取了以NAF这篇论文为基础，以Dinov3-B为模型，围绕语义分割，深度估计，开放词汇划分以及视频分割四个下游任务，进行NAF、ANYUP、JAFAR、FEATUP、Bilinear五种方法的复现与数据对比。
+
+填表格式为：复现数据 / 文献数据
+
+| Method   | Semantic Segmentation mIoU - COCO | Semantic Segmentation mIoU - VOC | Semantic Segmentation mIoU - ADE20K | Semantic Segmentation mIoU - Cityscapes | depth-estimation - NYUv2 | video-segmentation - DAVIS | open-vocabulary segmentation-Pascal VOC |
+|----------|--------------------------|-------------------------|----------------------------|--------------------------------|--------------------------|---------------------------|----------------------------------------|
+| NAF      |                          | 87.81/87.85             |                            | 66.30/64.98                    |                          | 70.88/70.55               |                                        |
+| ANYUP    |                          |                         |                            |                                |                          |                           |                                        |
+| JAFAR    |                          |                         |                            |                                |                          |                           |                                        |
+| FEATUP   |                          |                         |                            |                                |                          |                           |                                        |
+| Bilinear |                          |                         |                            |                                |                          |                           |                                        |
+
+#### 说明：
+- **语义分割**: 语义分割需跑四个数据集，目前已完成了VOC与Cityscapes数据集，Cityscapes数据集复现数据较高于文献数据，目前还没有来得及分析具体原因；
+- **深度估计**: 深度估计在NAF原始仓库代码中并未给出详细的数据格式以及运行代码，我们将代码调整后能够成功跑通代码，但数据集格式仍需调整；
+- **开放词汇划分**: 分析文献后发现这部分作者是利用ProxyCLIP来评估上采样表示，将其默认的双线性上采样替换为包括NAF在内的不同上采样器，目前我们的工作还没有推进到ProxyCLIP部分；
+- **视频分割**: 作者在文献中提到这部分仍然是利用ProxyCLIP来评估，但NAF原始仓库中给出了视频分割的python代码文件，我们首先根据文献附录将仓库配置文件参数与文献中的记录保持一致，复现出的数据略高于文献数据，后续会进一步比对NAF仓库与ProxyCLIP仓库中关于视频分割的实现，进一步校正复现数据。
+
+#### 运行指令
+```bash
+python evaluation/eval_seg_probing.py dataset=voc eval.model_ckpt=output/naf_release.pth
+```
+> 语义分割VOC数据集运行指令
 
 ```bash
-conda env create -f environment_cuda11.yaml
-# or 
-conda env create -f environment.yaml
+python NAF-main/evaluation/eval_video_seg.py dataset=davis dataroot=/root/autodl-tmp/data/DAVIS backbone.name=vit_base_patch16_dinov3.lvd1689m eval.model_ckpt=/root/NAF-main/NAF-main/output/naf_release.pth
 ```
-
-## Inference & Example Usage
-
-All pre-trained upsamplers are available on 🤗 here: https://huggingface.co/models?search=loftup.
-
-我们提供了一个单图推理的示例脚本 [example_usage.py](example_usage.py)。
-在脚本中，你可以非常方便地替换并调用不同的上采样器来提取高分辨率特征 (`hr_feats`)。
-
-### 1. 使用官方预训练的 LoftUp 模型
-```python
-import torch
-
-# 通过 torch.hub 快速加载预训练权重
-upsampler = torch.hub.load('andrehuang/loftup', 'loftup_dinov2s', pretrained=True)
-upsampler = upsampler.to('cuda')
-
-# 提取特征并根据参考图指导上采样
-lr_feats = model(normalized_img_tensor) # 1, dim, lr_size, lr_size
-hr_feats = upsampler(lr_feats, normalized_img_tensor) # 1, dim, 224, 224
-```
-目前支持的 `torch_hub_name` 包括：`loftup_dinov2s`, `loftup_dinov2b`, `loftup_dinov2s_reg`, `loftup_clip`, `loftup_siglip`, `loftup_siglip2` 等。
-
-### 2. 使用自定义上采样器 (如新增的 FeatUp)
-当你在工程中注册了类似 `FeatUp` 这样的新机制后，可以在示例文件中利用本地的工厂函数直接按名称初始化：
-```python
-from upsamplers import get_upsampler, load_upsampler_weights
-from featurizers import get_featurizer
-
-# 1. 实例化上采样器 (将 upsampler_type 改为你注册的名称 "featup")
-upsampler = get_upsampler(upsampler_type="featup", n_dim=dim, lr_size=lr_size)
-
-# 2. 如果新模型有预训练权重，可以通过自带函数加载
-# upsampler = load_upsampler_weights(upsampler, "path/to/featup.ckpt", dim)
-upsampler = upsampler.to('cuda')
-
-# 3. 提取特征并由该上采样器输出高分辨率特征
-lr_feats = model(normalized_img_tensor)
-hr_feats = upsampler(lr_feats, normalized_img_tensor) 
-```
-
-
-## Registering a New Custom Upsampler (e.g., FeatUp)
-
-如果要引入一个新的自定义上采样器（如 `FeatUp`），请参考 `upsamplers/README.md` 的指引，进行简单的全局注册：
-
-1. **统一定义接口**：确保你的自定义网络模型（如 `FeatUp`）其 `forward` 方法能够接受低分辨率特征和高分辨率指导图：`forward(self, lr_feats, img)`。
-2. **在工厂函数中注册**：在相关的 `upsamplers.py` 文件（或者你存放的统一下发文件）的 `get_upsampler` 函数中添加该模型的分支：
-   ```python
-   def get_upsampler(upsampler_type, n_dim, lr_size=16, cfg=None):
-       # ... existing code ...
-       elif upsampler_type == "bilinear":
-           return Bilinear()
-       elif upsampler_type == "featup":    # 新增注册你的自定义模型
-           return FeatUp(n_dim, ...)
-       # ... existing code ...
-   ```
-
-
-## Evaluation on Downstream Tasks
-
-### Dataset Preparation
-See [Preparing Datasets for Evaluation](datasets/README.md).
-
-### Semantic Segmentation
-对于语义分割评测，我们的代码 `eval_seg.py` 内部已经自动接入了上述的工厂函数流程。这意味着当你注册了新的模型（如 `featup`），**无需修改由于网络变更导致的后续繁杂代码**，只需在命令行中传入对应的模型名称即可。
+> 视频分割DAVIS数据集运行指令
 
 ```bash
-# 测试原生的 LoftUp 
-python eval_seg.py ++upsampler_type="loftup" ++upsampler_path="/path/to/your/loftup.ckpt" ++model_type="dinov2"
-
-# 测试刚才自定义注册的模型（如 FeatUp）
-python eval_seg.py ++upsampler_type="featup" ++upsampler_path="/path/to/your/featup_weights.ckpt" ++model_type="dinov2"
+python evaluation/eval_seg_probing.py dataset=cityscapes dataroot=/root/NAF-main/datasets_local/ eval.model_ckpt=/root/NAF-main/NAF-main/output/naf_release.pth
 ```
+> 语义分割cityscapes数据集运行指令
 
-*内部底层逻辑简要说明 (`eval_seg.py`)*:
-代码在初始化时，会自动根据传入名称分配权重机制：
-```python
-if upsampler_type != "no":
-    # 自动根据注册名称初始化模型架构
-    upsampler = get_upsampler(upsampler_type, n_dim, lr_size=final_size, cfg=cfg)
-    if upsampler_type != "bilinear":
-        # 自动加载此模型所需的 `.ckpt`
-        upsampler = load_upsampler_weights(upsampler, upsampler_path, n_dim)
-```
-相关通用配置可以调整：[configs/eval_seg.yaml](configs/eval_seg.yaml)。
-
-
-### Video Object Segmentation
-For video object segmentation on DAVIS, our code is modified from the implementation in [LiFT](https://github.com/saksham-s/lift). Extract segmentation results by running:
 ```bash
-python eval_davis.py --dataroot /your_davis_data_dir --model_type "dinov2" --output_dir /your_output_dir --imsize 224 --upsampler_type "featup" --upsampler_path /path/to/your/custom_weights.ckpt
+python evaluation/eval_seg_probing.py dataset=ade20k dataroot=/root/NAF-main/datasets_local/ eval.model_ckpt=/root/NAF-main/NAF-main/output/naf_release.pth
 ```
-Then run the evaluation script:
-```bash
-python davis2017-evaluation/evaluation_method.py --davis_path /your_davis_data_dir --task semi-supervised --results_path /your_output_dir/davis_vidseg_224 --imsize 224
-```
+> 语义分割ADE20k数据集运行指令
 
-### Others
-For interactive segmentation, please check out [iSegProbe](https://github.com/havrylovv/iSegProbe).
-For open-vocabulary segmentation, please check out [ProxyCLIP](https://github.com/mc-lan/ProxyCLIP).
-For depth and normal estimation, please check out [Probe3D](https://github.com/mbanani/probe3d).
 
-## Training different upsamplers
+#### 后续计划
+首先完成NAF对于四个下游任务的复现，在这个基础上再完成对于不同方法的替换时代码文件的修改，最后完成五种方法分别对于四种下游任务的评估效果复现。
 
-### Training LoftUp Upsamplers
-
-This repository contains training scripts for training LoftUp upsamplers. The training is done in two stages:
-
-#### Stage 1: Basic Feature Upsampling
-Stage 1 training (`train_loftup_stage1.py`) trains upsamplers to convert low-resolution features to high-resolution features using reconstruction loss.
-```bash
-python train_loftup_stage1.py ++dataset="sa1b" ++epochs=1 ++batch_size=2 ++num_gpus=4 ++model_type="dinov2" ++pytorch_data_dir='datasets' ++upsampler_type="loftup" ++sam_mask_alpha=0.8 ++load_size=224 ++upsample_size=224 ++tv_weight=0.001 ++clamp_featup=True
-```
-
-#### Stage 2: High-Resolution Supervision
-Stage 2 training (`train_loftup_stage2.py`) fine-tunes the Stage 1 upsampler with high-resolution supervision for improved quality.
-```bash
-python train_loftup_stage2.py ++dataset="sa1b" ++epochs=1 ++hr_res=896 ++batch_size=2 ++consistency_method="bilinear" ++model_type="dinov2" ++num_gpus=4 ++affinity_loss=True ++pytorch_data_dir='datasets' ++pretrained_upsampler="path/to/stage1_checkpoint.ckpt" ++upsampler_type="loftup" ++sam_mask_hr_alpha=0.5 ++sam_mask_reg=0.0 ++lr=1e-3 ++use_featup=False ++aug_size ++n_jitters=2
-```
+### 遇到的问题
+- **数据集过大，训练迭代次数较多，某些指标的复现花费时间较长**；
+- **深度估计的数据集格式不适配，后续需要进行调整，以此适配深度估计运行代码**；
+- **论文中涉及到ProxyCLIP仓库，目前还不清楚NAF仓库与ProxyCLIP仓库之间的联系，计划后续详细比对，以此复现出准确的开放词汇划分与视频分割功能**。
 
