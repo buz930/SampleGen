@@ -1,8 +1,10 @@
 # 进度汇报
-## 复现部分
 成员：周佳妮 谭笑
 
-时间：2026.6.10
+时间：2026.6.18
+
+负责任务(1)(2)
+## 任务1：复现
 
 摘要：截止目前，我们基于NAF仓库，完成了文献阅读、计划制定、基础环境配置、四种上采样方法在部分数据集上的复现工作，分以下几个部分简要介绍进度
 >目前云服务器消费共约130元
@@ -43,9 +45,9 @@ J&F (Jaccard Index and F-measure 的平均值)
 | Method   | Semantic Segmentation mIoU - COCO | Semantic Segmentation mIoU - VOC | Semantic Segmentation mIoU - ADE20K | Semantic Segmentation mIoU - Cityscapes | depth-estimation - NYUv2 | video-segmentation - DAVIS | open-vocabulary segmentation-Pascal VOC |
 |----------|--------------------------|-------------------------|----------------------------|--------------------------------|--------------------------|---------------------------|----------------------------------------|
 | NAF      |                          | 87.81/87.85             | 47.36/47.41                           | 64.95/64.98                    | 85.62/86.73                       | 70.88/70.55               | 64.09/63.86                                       |
-| ANYUP    |                          | 86.59/86.62                        |                            |60.87/60.35                                |85.46/86.36                          |                           |63.54/63.41                                        |
-| JAFAR    |                          | 86.95/87.10                        |                            |  62.68/62.36                              | 85.32/86.37                         |                           | 63.82/63.72                                       |
-| Bilinear |                          | 86.91/86.99                        |                            |                                | 85.10/86.10                         |                           |62.15/62.21                                        |
+| ANYUP    |                          | 86.59/86.62                        |                            |60.87/60.35                                |85.46/86.36                          |66.44/65.90                           |63.54/63.41                                        |
+| JAFAR    |                          | 86.95/87.10                        |                            |  62.68/62.36                              | 85.32/86.37                         |69.89/69.24                           | 63.82/63.72                                       |
+| Bilinear |                          | 86.91/86.99                        |                            |65.46/63.08                                | 85.10/86.10                         |70.41/70.00                           |62.15/62.21                                        |
 
 
 #### 说明：
@@ -66,6 +68,11 @@ python evaluation/eval_seg_probing.py dataset=voc eval.model_ckpt=output/naf_rel
 > 语义分割VOC数据集运行指令
 
 ```bash
+python evaluation/eval_seg_probing.py dataset=nyu eval.model_ckpt=output/naf_release.pth
+```
+> 深度估计NYUv2数据集运行指令
+
+```bash
 python NAF-main/evaluation/eval_video_seg.py dataset=davis dataroot=/root/autodl-tmp/data/DAVIS backbone.name=vit_base_patch16_dinov3.lvd1689m eval.model_ckpt=/root/NAF-main/NAF-main/output/naf_release.pth
 ```
 > 视频分割DAVIS数据集运行指令
@@ -80,11 +87,156 @@ python evaluation/eval_seg_probing.py dataset=ade20k dataroot=/root/NAF-main/dat
 ```
 > 语义分割ADE20k数据集运行指令
 
+```bash
+python bin/run_patchcore_config.py \
+  --config configs/patchcore_mvtec.yaml \
+  --method naf \
+  --scale 2 \
+  --class all
+```
+> 开发词汇分割VOC数据集运行指令(基于ProxyCLIP仓库)
 
 #### 后续计划
-中期验收前：补全表格（除语义分割的COCO数据集）
+除语义分割的COCO数据集、部分ADE数据集的复现任务外，复现工作已基本完成，后续将继续补全。
 
 ### 遇到的问题
 - **COCO数据集过大，训练迭代次数较多，复现花费时间长，租服务器的资金较多（完成所有方法在该数据集的评估，单卡4080预估需要20小时）**；
 
+## 任务2：下游任务扩展
+摘要：基于任务2要求，我们选取NAF论文未提及的下游任务进行了扩展实验，对比NAF、ANYUP、JAFAR、Bilinear四种方法的表现。评估方法为特征图可视化+评价指标对比。
+
+### 进度
+目前完成三个拓展任务（LoveDA、ISIC2018、DA-2K，数据集由刘思瑶同学提供）。三组实验都使用冻结的DINOv3 backbone，只训练很轻量的任务头。比较的上采样方法，与任务一一致，为 bilinear、AnyUp、JAFAR、NAF。
+>对于较大数据集，取子集（约500pics）作轻量评估，DA-2K数据集已完成全量评估。
+
+### 共同设置
+
+- backbone: vit_base_patch16_dinov3.lvd1689m
+- 输入尺寸: 448 x 448
+- backbone: 冻结
+- upsampler: 冻结
+- 优化器: AdamW
+- 学习率: 5e-4
+- weight decay: 1e-5
+- scheduler: one-cycle cosine
+
+### LoveDA 语义分割
+
+数据集规模:
+
+- 数据集: LoveDA_5class_100each_segmentation
+- 类别数: 5
+- 类别: building、road、water、forest、agricultural
+- 总样本数: 约 500 张
+- 划分: 80% train，20% val，seed=0
+
+超参数:
+
+- epochs: 20
+- batch size: 2
+- num workers: 4
+- 数据增强: 随机水平翻转
+- 损失: cross entropy
+- 忽略标签: 255
+
+实验流程:
+
+```text
+RGB image
+-> frozen DINOv3 backbone
+-> bilinear / AnyUp / JAFAR / NAF 上采样特征到 448 x 448
+-> 1x1 Conv segmentation probe
+-> 每像素 5 类 logits
+-> argmax 得到分割 mask
+-> 计算 mIoU 和 aAcc
+```
+
+评估指标:
+
+| 方法 | mIoU (%) |
+|---|---:|
+| bilinear | 88.70 |
+| AnyUp | 87.86 |
+| JAFAR | 87.67 |
+| **NAF** | 88.72 |
+
+### ISIC2018 Task1 皮肤病变分割
+
+数据集规模:
+
+- 数据集: ISIC2018 Task1 子集
+- 图像数: 500 张
+- mask: 500 张
+- 类别数: 2
+- 类别: background、lesion
+- 划分: 400 train，100 val，seed=0
+
+超参数:
+
+- epochs: 5
+- batch size: 2
+- num workers: 4
+- 数据增强: 随机水平翻转
+- 损失: cross entropy
+
+实验流程:
+
+```text
+ISIC image
+-> frozen DINOv3 backbone
+-> bilinear / AnyUp / JAFAR / NAF 上采样特征到 448 x 448
+-> 1x1 Conv binary segmentation probe
+-> 每像素 background / lesion logits
+-> argmax 得到 lesion mask
+-> 计算 Dice、IoU、aAcc
+```
+
+指标:
+
+| 方法 | Dice (%) | IoU (%) | aAcc (%) |
+|---|---:|---:|---:|
+| bilinear | 85.69 | 74.96 | 94.69 |
+| **AnyUp** | 86.75 | 76.61 | 95.11 |
+| JAFAR | 86.20 | 75.74 | 94.84 |
+| NAF | 85.99 | 75.42 | 94.81 |
+
+### DA-2K 相对深度估计
+
+数据集规模:
+
+- 数据集: DA-2K
+- 图像数: 1027 张
+- 标注: 点对相对深度标注，约 2K 个 pair
+- 划分: 826 train，207 val，seed=0
+- 验证点对数: 425
+
+超参数:
+
+- epochs: 5
+- batch size: 1
+- num workers: 2
+- 损失: pair ranking loss
+- 训练目标: point1 比 point2 更近
+
+实验流程:
+
+```text
+RGB image
+-> frozen DINOv3 backbone
+-> bilinear / AnyUp / JAFAR / NAF 上采样特征到 448 x 448
+-> 1x1 Conv depth/closeness probe
+-> 输出单通道 score map
+-> 在标注点对位置采样 score
+-> 判断 score(point1) > score(point2)
+-> 计算 pairwise accuracy 和 WHDR
+```
+
+指标:
+
+| 方法 | Pairwise accuracy (%) | WHDR (%) | best epoch |
+|---|---:|---:|---:|
+| bilinear | 82.82 | 17.18 | 5 |
+| AnyUp | 81.65 | 18.35 | 4 |
+| JAFAR | 82.59 | 17.41 | 2 |
+| **NAF** | 85.18 | 14.82 | 3 |
 
